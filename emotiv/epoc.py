@@ -24,7 +24,7 @@ EEG headsets.
 
 import os
 
-from multiprocessing import Process, JoinableQueue
+from multiprocessing import Process, Pipe
 
 import usb.core
 import usb.util
@@ -169,10 +169,6 @@ class EPOC(object):
         # Update __dict__ with convenience attributes for channels
         self.__dict__.update(dict((v, k) for k, v in enumerate(self.channels)))
 
-        # Queues
-        self.input_queue = JoinableQueue()
-        self.output_queue = JoinableQueue()
-
         # Enumerate the bus to find EPOC devices
         self.enumerate()
 
@@ -205,51 +201,51 @@ class EPOC(object):
     def enumerate(self):
         """Traverse through USB bus and enumerate EPOC devices."""
         if self.dummy:
+            self.serial_number = "SN20120229000459"
             self.endpoint = open("/dev/urandom")
-            return
 
-        devices = usb.core.find(find_all=True, custom_match=self._is_epoc)
+        else:
+            devices = usb.core.find(find_all=True, custom_match=self._is_epoc)
 
-        if not devices:
-            raise EPOCNotPluggedError("Emotiv EPOC not found.")
+            if not devices:
+                raise EPOCNotPluggedError("Emotiv EPOC not found.")
 
-        for dev in devices:
-            serial = usb.util.get_string(dev, 32, dev.iSerialNumber)
-            if self.serial_number and self.serial_number != serial:
-                # If a special S/N is given, look for it.
-                continue
+            for dev in devices:
+                serial = usb.util.get_string(dev, 32, dev.iSerialNumber)
+                if self.serial_number and self.serial_number != serial:
+                    # If a special S/N is given, look for it.
+                    continue
 
-            # Record some attributes
-            self.serial_number = serial
-            self.vendor_id = "%X" % dev.idVendor
-            self.product_id = "%X" % dev.idProduct
+                # Record some attributes
+                self.serial_number = serial
+                self.vendor_id = "%X" % dev.idVendor
+                self.product_id = "%X" % dev.idProduct
 
-            if self.method == "libusb":
-                # 2nd interface is the one we need
-                interface = dev.get_active_configuration()[1]
-                if dev.is_kernel_driver_active(interface.bInterfaceNumber):
-                    # Detach kernel drivers and claim through libusb
-                    dev.detach_kernel_driver(interface.bInterfaceNumber)
-                    usb.util.claim_interface(dev, interface.bInterfaceNumber)
+                if self.method == "libusb":
+                    # 2nd interface is the one we need
+                    interface = dev.get_active_configuration()[1]
+                    if dev.is_kernel_driver_active(interface.bInterfaceNumber):
+                        # Detach kernel drivers and claim through libusb
+                        dev.detach_kernel_driver(interface.bInterfaceNumber)
+                        usb.util.claim_interface(dev, interface.bInterfaceNumber)
 
-                self.device = dev
-                self.endpoint = usb.util.find_descriptor(
-                    interface, bEndpointAddress=usb.ENDPOINT_IN | 2)
-            elif self.method == "hidraw":
-                if os.path.exists("/dev/emotiv_epoc"):
-                    self.endpoint = open("/dev/emotiv_epoc")
-                else:
-                    raise EPOCDeviceNodeNotFoundError(
-                        "/dev/emotiv_epoc doesn't exist.")
+                    self.device = dev
+                    self.endpoint = usb.util.find_descriptor(
+                        interface, bEndpointAddress=usb.ENDPOINT_IN | 2)
+                elif self.method == "hidraw":
+                    if os.path.exists("/dev/emotiv_epoc"):
+                        self.endpoint = open("/dev/emotiv_epoc")
+                    else:
+                        raise EPOCDeviceNodeNotFoundError(
+                            "/dev/emotiv_epoc doesn't exist.")
 
-            # Return the first Emotiv headset by default
-            break
+                # Return the first Emotiv headset by default
+                break
 
-        self.setup_encryption()
-        self.endpoint.read(32)
+        self.setup_daemon()
 
-    def setup_encryption(self, research=True):
-        """Generate the encryption key and setup Crypto module.
+    def setup_daemon(self, research=True):
+        """Generates the encryption key and spawns producer thread.
         The key is based on the serial number of the device and the
         information whether it is a research or consumer device.
         """
@@ -272,31 +268,19 @@ class EPOC(object):
                                            self.serial_number[13], '\x00',
                                            self.serial_number[12], '\x50'])
 
-        self.decryption = Process(target=decryptionProcess,
-                                 args=[self.decryption_key,
-                                       self.input_queue,
-                                       self.output_queue, False])
-        self.decryption.daemon = True
-        self.decryption.start()
+        self.read_pipe, self.write_pipe = Pipe()
+        self.producer = Process(target=decryptionProcess,
+                                 args=(self.decryption_key,
+                                       self.endpoint,
+                                       self.write_pipe))
+        self.producer.daemon = True
 
-    def acquire_data(self, duration):
-        """Acquire data from the EPOC headset."""
+    def start_acquisition(self):
+        """Starts acquisition."""
+        self.producer.start()
 
-        total_samples = duration * self.sampling_rate
-        while self.output_queue.qsize() != total_samples:
-            # Fetch new data
-            try:
-                self.input_queue.put(self.endpoint.read(32))
-            except usb.USBError as usb_exception:
-                if usb_exception.errno == 110:
-                    raise EPOCTurnedOffError(
-                        "Make sure that headset is turned on")
-                else:
-                    raise EPOCUSBError("USB I/O error with errno = %d" %
-                                       usb_exception.errno)
-
-        # Process and return the final data
-        self.output_queue.join()
+    def fetch_data(self, duration):
+        """Acquire data from the Producer process."""
 
         # +1 for sequence numbers
         _buffer = np.zeros((len(self.channel_mask)+1, self.output_queue.qsize()))

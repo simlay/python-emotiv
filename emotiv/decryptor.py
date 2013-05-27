@@ -20,19 +20,21 @@
 from bitstring import BitArray
 from Crypto.Cipher import AES
 
-def decryptionProcess(aes_key, input_queue, output_queue, sync=False):
+def decryptionProcess(aes_key, endpoint, pipe):
     # Setup decryption cipher
     cipher = AES.new(aes_key)
+
+    # Setup a 4 second buffer
+    # Each second 128 packets are sent. After each second 1 packet
+    # is sent to notify battery and quality information.
+    _buffer = list(xrange(129))
+
     while 1:
-        decrypted_packet = cipher.decrypt(input_queue.get())
-        bits = BitArray(bytes=decrypted_packet)
-        if sync and output_queue.empty() and bits[0:8].uint != 0:
-            # Skip until packet with seq number 0
-            # An empty queue means that we processed the previous
-            # buffer in the other thread. So we can wait until pkg#0
-            # for syncing.
-            continue
-        if not bits[0]:
-            # Discard battery packets for now
-            output_queue.put(bits)
-            output_queue.task_done()
+        try:
+            for i in xrange(129):
+                _buffer[i] = BitArray(bytes=cipher.decrypt(endpoint.read(32)))
+        except:
+            pass
+        else:
+            # 1 second of EEG is acquired, pass it
+            pipe.send(_buffer)
