@@ -166,6 +166,8 @@ class EPOC(object):
             "FC6": 0, "F4": 0,
         }
 
+        self.battery_level = 0
+
         # Update __dict__ with convenience attributes for channels
         self.__dict__.update(dict((v, k) for k, v in enumerate(self.channels)))
 
@@ -279,20 +281,30 @@ class EPOC(object):
         """Starts acquisition."""
         self.producer.start()
 
+    def __process_packet(self, pbits):
+        """Process & unpack emotiv EEG packet."""
+        seq = bits[self.slices["SEQ#"]].uint
+        if bits[0]:
+            # Got battery level
+            self.battery_level = self.battery_levels[seq]
+        else:
+            # Normal data packet for 1 second
+            """
+            _buffer = np.zeros((len(self.channel_mask) + 1, self.sampling_rate)
+            for spl in xrange(self.output_queue.qsize()):
+                bits = self.output_queue.get()
+                _buffer[0, spl] = bits[self.slices["SEQ#"]].uint
+                for index, ch_name in enumerate(self.channel_mask):
+                    # ch_name's are strings like "O1", "O2", etc.
+                    _buffer[index + 1, spl] = bits[self.slices[ch_name]].uint
+
+            return _buffer
+            """
+
     def fetch_data(self, duration):
         """Acquire data from the Producer process."""
 
         # +1 for sequence numbers
-        _buffer = np.zeros((len(self.channel_mask)+1, self.output_queue.qsize()))
-        for spl in xrange(self.output_queue.qsize()):
-            bits = self.output_queue.get()
-            _buffer[0, spl] = bits[self.slices["SEQ#"]].uint
-            for index, ch_name in enumerate(self.channel_mask):
-                # ch_name's are strings like "O1", "O2", etc.
-                _buffer[index + 1, spl] = bits[self.slices[ch_name]].uint
-
-        return _buffer
-
     def save_as_matlab(self, _buffer, filename, metadata=None):
         """Save acquired data as matlab file."""
         # Save as matlab data with channel annotations
@@ -307,8 +319,12 @@ class EPOC(object):
             savemat("%s.mat" % filename, matlab_data, oned_as='row')
 
     def get_quality(self, electrode):
-        "Return contact quality for the specified electrode."""
+        """Return contact quality for the specified electrode."""
         return self.quality.get(electrode, None)
+
+    def get_battery(self):
+        """Return battery percentage."""
+        return self.battery_level
 
     def disconnect(self):
         """Release the claimed interface."""
