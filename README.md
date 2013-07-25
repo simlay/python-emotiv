@@ -22,10 +22,18 @@ Dependencies
 * matplotlib (For data analysis scripts under utils/)
 * RPi GPIO (For SSVEP BCI in examples/)
 
+This can be done with:
+
 Installation
 ============
 
-Just run ```python setup.py install``` to install the module on your system.
+```
+pip install -r requirements.txt
+python setup.py install
+```
+
+Then just run ```python setup.py install``` to install the module on your
+system.
 
 Screenshot
 ==========
@@ -35,11 +43,7 @@ and output the data once in a second on your terminal:
 
 ![Terminal screenshot](https://raw.github.com/ozancaglayan/python-emotiv/master/doc/sc_console.png)
 
-Note that the datalogger is outdated and does not use the latest EPOC class from this repository.
-I will port it to the new interface as soon as it's possible.
-
-
 Authors
 =======
 
-Ozan Çağlayan, Galatasaray University, Computer Engineering Dept.
+Sebastian Imlay

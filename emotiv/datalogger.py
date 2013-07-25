@@ -19,9 +19,7 @@
 
 from __future__ import print_function
 
-import os
 import sys
-import time
 
 import usb.core
 import usb.util
@@ -30,7 +28,6 @@ import numpy as np
 
 from bitstring import BitArray
 
-from scipy import fftpack
 from Crypto.Cipher import AES
 
 # Enumerations for EEG channels (14 channels)
@@ -151,7 +148,6 @@ class EmotivEPOC(object):
 
         for dev in devs:
             sn = usb.util.get_string(dev, 32, dev.iSerialNumber)
-            cfg = dev.get_active_configuration()
 
             for interf in dev.get_active_configuration():
                 if dev.is_kernel_driver_active(interf.bInterfaceNumber):
@@ -169,7 +165,7 @@ class EmotivEPOC(object):
             # FIXME: Default to the first device for now
             break
 
-    def setupEncryption(self, research=True):
+    def setup_encryption(self, research=True):
         """Generate the encryption key and setup Crypto module.
         The key is based on the serial number of the device and the
         information whether it is a research or consumer device.
@@ -252,7 +248,7 @@ class EmotivEPOC(object):
         return self.ch_buffer[self.channelNames.index(what), :]
 
     def getFFTData(self, what):
-        d= self.fft_buffer[self.channelNames.index(what), :]
+        d = self.fft_buffer[self.channelNames.index(what), :]
         print(d)
         return d
 
@@ -289,7 +285,7 @@ class EmotivEPOC(object):
         "Return contact quality for the specified electrode."""
         try:
             return self.quality[electrode]
-        except KeyError, ke:
+        except KeyError:
             print("Electrode name %s is wrong." % electrode)
 
     def getBatteryLevel(self):
@@ -300,7 +296,6 @@ class EmotivEPOC(object):
         """Release the claimed interfaces."""
 
         for dev in self.devices.values():
-            cfg = dev.get_active_configuration()
 
             for interf in dev.get_active_configuration():
                 usb.util.release_interface(dev, interf.bInterfaceNumber)
@@ -327,7 +322,7 @@ if __name__ == "__main__":
     for k,v in emotiv.devices.iteritems():
         print("Found dongle with S/N: %s" % k)
 
-    emotiv.setupEncryption()
+    emotiv.setup_encryption()
 
     try:
         while True:

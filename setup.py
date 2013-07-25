@@ -3,17 +3,14 @@
 
 from distutils.core import setup
 
-VERSION = "0.1"
-
 setup(
-        name="python-emotiv",
-        version=VERSION,
-        author="Ozan Çağlayan",
-        author_email="ozancag@gmail.com",
-        packages=["emotiv"],
-        data_files=[('/etc/udev/rules.d', ['udev/99-emotiv-epoc.rules'])],
-        #scripts
-        url="http://github.com/ozancaglayan/python-emotiv",
-        license="COPYING",
-        description="Python library to access Emotiv EPOC EEG headset data",
-     )
+		name='python-emotiv',
+		version='0.1',
+		author='Sebastian Imlay',
+		packages=['emotiv'],
+		provides=['xp_board'],
+		#data_files=[('/etc/udev/rules.d', ['udev/99-emotiv-epoc.rules'])],
+		#scripts
+		url='http://github.com/simlay/python-emotiv',
+		description='Python library to access Emotiv EPOC EEG headset data',
+)
