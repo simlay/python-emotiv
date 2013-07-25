@@ -20,6 +20,8 @@
 from __future__ import print_function
 
 import sys
+from multiprocessing import Process, JoinableQueue
+from decryptor import decryptionProcess
 
 import usb.core
 import usb.util
@@ -118,6 +120,12 @@ class EmotivEPOC(object):
                             "P8" : 0, "T8"  : 0, "F8"  : 0, "AF4": 0,
                             "FC6": 0, "F4"  : 0,
                        }
+        # Queues
+        self.input_queue = JoinableQueue()
+        self.output_queue = JoinableQueue()
+
+        # Enumerate the bus to find EPOC devices
+        self.enumerate()
 
     def _is_emotiv_epoc(self, device):
         """Custom match function for libusb."""
@@ -191,7 +199,39 @@ class EmotivEPOC(object):
 
         self.cipher = AES.new(self.key)
 
-    def acquireData(self, dump=False):
+    def setup_encryption_multithread(self, research=True):
+        """Generate the encryption key and setup Crypto module.
+        The key is based on the serial number of the device and the
+        information whether it is a research or consumer device.
+        """
+        if research:
+            self.decryption_key = ''.join([self.serial_number[15], '\x00',
+                                           self.serial_number[14], '\x54',
+                                           self.serial_number[13], '\x10',
+                                           self.serial_number[12], '\x42',
+                                           self.serial_number[15], '\x00',
+                                           self.serial_number[14], '\x48',
+                                           self.serial_number[13], '\x00',
+                                           self.serial_number[12], '\x50'])
+        else:
+            self.decryption_key = ''.join([self.serial_number[15], '\x00',
+                                           self.serial_number[14], '\x48',
+                                           self.serial_number[13], '\x00',
+                                           self.serial_number[12], '\x54',
+                                           self.serial_number[15], '\x10',
+                                           self.serial_number[14], '\x42',
+                                           self.serial_number[13], '\x00',
+                                           self.serial_number[12], '\x50'])
+
+        self.decryption = Process(target=decryptionProcess,
+                                 args=[self.decryption_key,
+                                       self.input_queue,
+                                       self.output_queue, False])
+        self.decryption.daemon = True
+        self.decryption.start()
+
+
+    def acquire_data(self, dump=False):
         try:
             raw = self.endpoints[self.serialNumber].read(32, timeout=1000)
             bits = BitArray(bytes=self.cipher.decrypt(raw))
@@ -241,10 +281,10 @@ class EmotivEPOC(object):
 
             # Dump once for each second
             if dump and self.counter == 127:
-                self.dumpData()
+                self.dump_data()
 
     def getData(self, what):
-        self.acquireData()
+        self.acquire_data()
         return self.ch_buffer[self.channelNames.index(what), :]
 
     def getFFTData(self, what):
@@ -252,7 +292,7 @@ class EmotivEPOC(object):
         print(d)
         return d
 
-    def dumpData(self):
+    def dump_data(self):
         # Clear screen
         print("\x1b[2J\x1b[H")
         header = "Emotiv Data Packet [%3d/128] [Loss: %3d] [Battery: %2d(%%)]" % (
@@ -274,11 +314,11 @@ class EmotivEPOC(object):
         pass
 
     def getGyroX(self):
-        self.acquireData()
+        self.acquire_data()
         yield self.gyroX
 
     def getGyroY(self):
-        self.acquireData()
+        self.acquire_data()
         yield self.gyroY
 
     def getContactQuality(self, electrode):
@@ -302,15 +342,8 @@ class EmotivEPOC(object):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) > 2:
-        # Pass a specific S/N
-        emotiv = EmotivEPOC(sys.argv[1])
-    else:
-        emotiv = EmotivEPOC()
-
-    print("Enumerating devices...")
     try:
-        emotiv.enumerate()
+        emotiv = EmotivEPOC()
     except EmotivEPOCNotFoundException, e:
         if emotiv.permissionProblem:
             print("Please make sure that device permissions are handled.")
@@ -326,7 +359,7 @@ if __name__ == "__main__":
 
     try:
         while True:
-            emotiv.acquireData(dump=True)
+            emotiv.acquire_data(dump=True)
     except KeyboardInterrupt, ke:
         emotiv.disconnect()
         sys.exit(1)
