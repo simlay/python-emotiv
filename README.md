@@ -35,6 +35,10 @@ python setup.py install
 Then just run ```python setup.py install``` to install the module on your
 system.
 
+For OS X, ```source emotiv_setup.sh```.  This prevents the OS turning emotiv
+EEG/EPOC into a divice type.  To go back to the original setup using Emotiv's
+designed software, simply run ```emotiv_uninstall``` (found in emotiv_setup.sh).
+
 Screenshot
 ==========
 
